@@ -51,6 +51,11 @@ function importExcel(fileId){
  finally{if(tempId)try{DriveApp.getFileById(tempId).setTrashed(true);}catch(e){}lock.releaseLock();}
 }
 function doGet(e){
+ if(e && e.parameter && e.parameter.page === 'upload'){
+   try { assertUploadAccess_(); return HtmlService.createHtmlOutputFromFile('Upload').setTitle('VTMS VOR — Secure Upload'); }
+   catch(err){ return HtmlService.createHtmlOutput('<h2>Access denied</h2><p>Upload requires an authorized Google account. Contact the VTMS administrator.</p>').setTitle('Access denied'); }
+ }
+
  const ss=SpreadsheetApp.getActiveSpreadsheet(),sh=ss.getSheetByName(VOR.reason);
  const rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,4).getValues():[];
  const names={'Mother':'Mother','Feeder':'Feeder','Container Others':'Container Others','ATB':'ATB','Malakoff':'Malakoff','Bunker':'Bunker','Ship to Ship':'Ship to Ship','Water':'Water','Other':'Other'};
@@ -58,4 +63,25 @@ function doGet(e){
  rows.forEach(r=>{const y=String(r[0]),m=Number(r[1])-1,k=names[r[2]];if(!k||m<0||m>11||!y.match(/^20\d\d$/))return;if(!result[y])result[y]={};if(!result[y][k])result[y][k]=[];result[y][k][m]=r[3]===''?0:Number(r[3])||0;});
  Object.values(result).forEach(groups=>{const length=Math.max(0,...Object.values(groups).map(a=>a.length));Object.keys(names).forEach(k=>{groups[k]=Array.from({length},(_,i)=>groups[k]?.[i]||0);});});
  const callback=(typeof e!=='undefined'&&e&&e.parameter&&e.parameter.callback)||''; if(callback && /^vtmsCallback_[a-zA-Z0-9_]+$/.test(callback)) return ContentService.createTextOutput(callback+'('+JSON.stringify(result)+');').setMimeType(ContentService.MimeType.JAVASCRIPT); return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+}
+
+/** Upload permission: script property VTMS_UPLOAD_ALLOWLIST is comma-separated emails.
+ * Fail closed when account identity cannot be verified. Never put credentials in GitHub Pages.
+ * Deploy web app "Execute as: User accessing the web app"; restrict access to your organization where available.
+ */
+function assertUploadAccess_(){
+ const email=(Session.getActiveUser().getEmail()||'').trim().toLowerCase();
+ const allow=(PropertiesService.getScriptProperties().getProperty('VTMS_UPLOAD_ALLOWLIST')||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+ if(!email || !allow.includes(email))throw Error('Not authorized for VTMS VOR upload');
+ return email;
+}
+function importUploadedForm(form){
+ const user=assertUploadAccess_();
+ if(!form || !form.vorFile)throw Error('Please select a VOR Excel file');
+ const blob=form.vorFile, name=String(blob.getName()||'');
+ if(!/\\.xlsx$/i.test(name))throw Error('Only .xlsx Excel files are accepted');
+ if(blob.getBytes().length>10*1024*1024)throw Error('Maximum upload size is 10 MB');
+ const file=DriveApp.createFile(blob).setName(name);
+ try { return importExcel(file.getId())+' Uploaded by '+user; }
+ finally { try { file.setTrashed(true); } catch(e){} }
 }
