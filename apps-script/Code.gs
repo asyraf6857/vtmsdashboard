@@ -3,7 +3,7 @@
  * Only aggregated data is served to the public dashboard; do not publish vessel-level rows.
  */
 const VOR = {sheet:'MONTHLY_SUMMARY',reason:'VISIT_REASON',loa:'LOA_ANALYSIS',log:'UPLOAD_LOG'};
-const CATS = [['Mother',10],['Feeder',11],['Container Others',12],['ATB',16],['Malakoff',17],['Bunker',18],['Ship to Ship',19],['Water',20],['Other',21]];
+const CATS = [['Mother',8],['Feeder',9],['Container Others',10],['ATB',14],['Malakoff',15],['Bunker',16],['Ship to Ship',17],['Water',18],['Other',19]];
 const BINS = ['≤100 m','100–150 m','150–200 m','200–250 m','250–300 m','300–350 m','350–400 m','>400 m'];
 function onOpen(){SpreadsheetApp.getUi().createMenu('VTMS VOR').addItem('Import Excel from Drive','importPrompt').addToUi();}
 function importPrompt(){const ui=SpreadsheetApp.getUi();const p=ui.prompt('Import Excel','Paste the Google Drive FILE ID of an uploaded .xlsx VOR file (not the folder ID).',ui.ButtonSet.OK_CANCEL);if(p.getSelectedButton()!==ui.Button.OK)return;try{const msg=importExcel(p.getResponseText().trim());ui.alert(msg);}catch(e){ui.alert('Import failed: '+e.message);}}
@@ -21,18 +21,18 @@ function importExcel(fileId){
   const year=Number(yearMatch[0]);
   const tab=source.getSheetByName(String(year));
   if(!tab)throw Error('Year worksheet '+year+' not found in Excel');
-  const v=tab.getRange('C10:N44').getValues();
-  const cell=(r,m)=>{const x=v[r-10][m];return x===''||x===null?null:Number(x)};
-  const months=[];for(let m=0;m<12;m++){const t=cell(23,m);if(t!==null&&t>0)months.push(m);}
+  const v=tab.getRange('C8:N44').getValues();
+  const cell=(r,m)=>{const x=v[r-8][m];return x===''||x===null?null:Number(x)};
+  const months=[];for(let m=0;m<12;m++){const t=cell(21,m);if(t!==null&&t>0)months.push(m);}
   if(!months.length)throw Error('No populated monthly totals found in row 23');
   const summary=[],reasons=[],loa=[];
   months.forEach(m=>{
-   const c=cell(13,m),n=cell(22,m),total=cell(23,m);
-   if(c===null||n===null||total===null||!Number.isFinite(c)||!Number.isFinite(n)||!Number.isFinite(total)||c+n!==total)throw Error('Summary mismatch '+year+' month '+(m+1)+': Container (row 13)='+c+', Non-Container (row 22)='+n+', Total (row 23)='+total+'. Expected Container + Non-Container = Total. Check source layout. No data was replaced.');
+   const c=cell(11,m),n=cell(20,m),total=cell(21,m);
+   if(c===null||n===null||total===null||!Number.isFinite(c)||!Number.isFinite(n)||!Number.isFinite(total)||c+n!==total)throw Error('Summary mismatch '+year+' month '+(m+1)+': Container (row 11)='+c+', Non-Container (row 20)='+n+', Total (row 21)='+total+'. Expected Container + Non-Container = Total. Check source layout. No data was replaced.');
    summary.push([year,m+1,total,c,n,'','','','',new Date()]);
    CATS.forEach(([name,row])=>{const count=cell(row,m);reasons.push([year,m+1,name,count===null?'':count,count===null?'':count/total]);});
    let loaSum=0;
-   for(let b=0;b<8;b++){const lc=cell(29+b*2,m)||0,ln=cell(30+b*2,m)||0;loa.push([year,m+1,BINS[b],lc,ln,lc+ln]);loaSum+=lc+ln;}
+   for(let b=0;b<8;b++){const lc=cell(27+b*2,m)||0,ln=cell(28+b*2,m)||0;loa.push([year,m+1,BINS[b],lc,ln,lc+ln]);loaSum+=lc+ln;}
    if(loaSum!==total)throw Error('LOA mismatch '+year+' month '+(m+1));
   });
   const ss=SpreadsheetApp.getActiveSpreadsheet();
