@@ -62,6 +62,10 @@ function doGet(e){
  const result={};
  rows.forEach(r=>{const y=String(r[0]),m=Number(r[1])-1,k=names[r[2]];if(!k||m<0||m>11||!y.match(/^20\d\d$/))return;if(!result[y])result[y]={};if(!result[y][k])result[y][k]=[];result[y][k][m]=r[3]===''?0:Number(r[3])||0;});
  Object.values(result).forEach(groups=>{const length=Math.max(0,...Object.values(groups).map(a=>a.length));Object.keys(names).forEach(k=>{groups[k]=Array.from({length},(_,i)=>groups[k]?.[i]||0);});});
+ // Public dashboard receives only monthly aggregated LOA counts, never vessel-level records.
+ const loaSheet=ss.getSheetByName(VOR.loa);
+ const loaRows=loaSheet && loaSheet.getLastRow()>1?loaSheet.getRange(2,1,loaSheet.getLastRow()-1,6).getValues():[];
+ result.__loa=loaRows.filter(r=>/^20\\d{2}$/.test(String(r[0]))&&Number(r[1])>=1&&Number(r[1])<=12).map(r=>[Number(r[0]),Number(r[1]),String(r[2]),Number(r[3])||0,Number(r[4])||0]);
  const callback=(typeof e!=='undefined'&&e&&e.parameter&&e.parameter.callback)||''; if(callback && /^vtmsCallback_[a-zA-Z0-9_]+$/.test(callback)) return ContentService.createTextOutput(callback+'('+JSON.stringify(result)+');').setMimeType(ContentService.MimeType.JAVASCRIPT); return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
 }
 
