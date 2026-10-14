@@ -51,6 +51,7 @@ function importExcel(fileId){
  finally{if(tempId)try{DriveApp.getFileById(tempId).setTrashed(true);}catch(e){}lock.releaseLock();}
 }
 function doGet(e){
+ if(e && e.parameter && e.parameter.page === 'movement-upload'){try{assertUploadAccess_();return HtmlService.createHtmlOutputFromFile('UploadMovement').setTitle('VTMS Movement Planning Upload');}catch(err){return HtmlService.createHtmlOutput('<h2>Access denied</h2><p>Authorized Google account required.</p>');}}
  if(e && e.parameter && e.parameter.page === 'upload'){
    try { assertUploadAccess_(); return HtmlService.createHtmlOutputFromFile('Upload').setTitle('VTMS VOR — Secure Upload'); }
    catch(err){ return HtmlService.createHtmlOutput('<h2>Access denied</h2><p>Upload requires an authorized Google account. Contact the VTMS administrator.</p>').setTitle('Access denied'); }
@@ -90,4 +91,65 @@ function importUploadedForm(form){
  const file=DriveApp.createFile(blob).setName(name);
  try { return importExcel(file.getId())+' Uploaded by '+user; }
  finally { try { file.setTrashed(true); } catch(e){} }
+}
+
+/** Import movement planning workbook into MOVEMENT_SUMMARY.
+ * Counts rows with a nonblank Assign Pilot; month determined by Move SRT.
+ * Replace only years represented in valid input data.
+ */
+function importMovementUploadedForm(form){
+ const user=assertUploadAccess_();
+ if(!form||!form.movementFile)throw Error('Select Movement Planning .xlsx');
+ const name=String(form.originalFileName||form.movementFile.getName()||'');
+ if(!/\.xlsx$/i.test(name))throw Error('Only .xlsx files are supported');
+ if(form.movementFile.getBytes().length>12*1024*1024)throw Error('Maximum upload size: 12 MB');
+ const lock=LockService.getDocumentLock();lock.waitLock(30000);
+ let uploaded=null,converted=null;
+ try{
+  uploaded=DriveApp.createFile(form.movementFile).setName(name);
+  converted=Drive.Files.create({name:'VTMS_MOVEMENT_TEMP_'+Date.now(),mimeType:'application/vnd.google-apps.spreadsheet'},uploaded.getBlob(),{fields:'id'}).id;
+  const source=SpreadsheetApp.openById(converted);
+  const candidate=source.getSheets().find(sh=>{const a=sh.getRange(1,1,1,Math.min(sh.getLastColumn(),20)).getDisplayValues()[0].map(x=>String(x).trim().toLowerCase());return a.includes('assign pilot')&&a.includes('move srt')&&a.includes('move type')});
+  if(!candidate)throw Error('Cannot find a movement data worksheet with Assign Pilot, Move SRT and Move Type headers');
+  const cols=candidate.getRange(1,1,1,candidate.getLastColumn()).getDisplayValues()[0].map(x=>String(x).trim().toLowerCase());
+  const pilot=cols.indexOf('assign pilot'),date=cols.indexOf('move srt'),type=cols.indexOf('move type'),reason=cols.indexOf('visit reason');
+  if(reason<0)throw Error('Visit Reason column missing');
+  const counts={},years=new Set();let assigned=0,skipped=0;
+  const last=candidate.getLastRow(),width=Math.max(pilot,date,type,reason)+1;
+  for(let start=2;start<=last;start+=3000){
+   const block=candidate.getRange(start,1,Math.min(3000,last-start+1),width).getValues();
+   block.forEach(row=>{
+    if(!String(row[pilot]||'').trim()){skipped++;return}
+    const d=row[date] instanceof Date?row[date]:(typeof row[date]==='number'?new Date(Date.UTC(1899,11,30)+row[date]*86400000):new Date(row[date]));
+    if(isNaN(d.getTime())){skipped++;return}
+    const year=d.getUTCFullYear(),month=d.getUTCMonth()+1;
+    if(year<2020||year>2100){skipped++;return}
+    const t=String(row[type]||'').trim().toUpperCase();
+    const pos={ARRIVAL:0,DEPARTURE:2,MOVE:4,SHIFT:6}[t];
+    if(pos===undefined){skipped++;return}
+    const group=String(row[reason]||'').trim().toLowerCase()==='container'?0:1;
+    const key=year+'-'+month;
+    if(!counts[key])counts[key]=[year,month,0,0,0,0,0,0,0,0];
+    counts[key][2+pos+group]++;years.add(year);assigned++;
+   });
+  }
+  if(!assigned)throw Error('No valid assigned-pilot movement rows found');
+  if(years.size!==1)throw Error('File includes multiple movement years; upload one year at a time');
+  const year=[...years][0],ss=SpreadsheetApp.getActiveSpreadsheet(),sh=ss.getSheetByName('MOVEMENT_SUMMARY');
+  if(!sh)throw Error('MOVEMENT_SUMMARY tab missing');
+  const existing=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,10).getValues():[];
+  const keep=existing.filter(r=>Number(r[0])!==year);
+  const added=Object.values(counts).sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+  const output=keep.concat(added).sort((a,b)=>Number(a[0])-Number(b[0])||Number(a[1])-Number(b[1]));
+  if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,11).clearContent();
+  if(output.length){
+   sh.getRange(2,1,output.length,10).setValues(output);
+   sh.getRange(2,11,output.length,1).setFormulas(output.map((r,i)=>['=SUM(C'+(i+2)+':J'+(i+2)+')']));
+  }
+  return 'Imported '+assigned+' assigned-pilot movements for '+year+' across '+added.length+' months. Skipped '+skipped+' rows. Uploaded by '+user+'.';
+ }finally{
+  if(converted)try{DriveApp.getFileById(converted).setTrashed(true)}catch(e){}
+  if(uploaded)try{uploaded.setTrashed(true)}catch(e){}
+  lock.releaseLock();
+ }
 }
