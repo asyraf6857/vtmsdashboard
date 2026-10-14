@@ -1,3 +1,2 @@
-// Set this after deploying apps-script/Code.gs as a Google Apps Script web app.
-// IMPORTANT: Public web app exposes aggregate VOR statistics. Confirm permission before enabling.
-window.VTMS_API_URL = '';
+// Aggregated VOR data endpoint. Do not publish vessel-level or sensitive records.
+window.VTMS_API_URL = 'https://script.google.com/macros/s/AKfycbzpCyG-GqgcXfXNRwJWYaYVAV_6_kE9RINpuTcfvZaUPs4joTHwdSVS1CLORRnqSJW_/exec';
