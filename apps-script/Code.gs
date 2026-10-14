@@ -28,7 +28,7 @@ function importExcel(fileId){
   const summary=[],reasons=[],loa=[];
   months.forEach(m=>{
    const c=cell(13,m),n=cell(22,m),total=cell(23,m);
-   if(c===null||n===null||c+n!==total)throw Error('Summary mismatch '+year+' month '+(m+1));
+   if(c===null||n===null||total===null||!Number.isFinite(c)||!Number.isFinite(n)||!Number.isFinite(total)||c+n!==total)throw Error('Summary mismatch '+year+' month '+(m+1)+': Container (row 13)='+c+', Non-Container (row 22)='+n+', Total (row 23)='+total+'. Expected Container + Non-Container = Total. Check source layout. No data was replaced.');
    summary.push([year,m+1,total,c,n,'','','','',new Date()]);
    CATS.forEach(([name,row])=>{const count=cell(row,m);reasons.push([year,m+1,name,count===null?'':count,count===null?'':count/total]);});
    let loaSum=0;
