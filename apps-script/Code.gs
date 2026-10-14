@@ -78,8 +78,8 @@ function assertUploadAccess_(){
 function importUploadedForm(form){
  const user=assertUploadAccess_();
  if(!form || !form.vorFile)throw Error('Please select a VOR Excel file');
- const blob=form.vorFile, name=String(blob.getName()||'');
- if(!/\\.xlsx$/i.test(name))throw Error('Only .xlsx Excel files are accepted');
+ const blob=form.vorFile, name=String(form.originalFileName||blob.getName()||'').trim();
+ if(!/\\.xlsx$/i.test(name))throw Error('Only .xlsx Excel files are accepted (received: '+name+')');
  if(blob.getBytes().length>10*1024*1024)throw Error('Maximum upload size is 10 MB');
  const file=DriveApp.createFile(blob).setName(name);
  try { return importExcel(file.getId())+' Uploaded by '+user; }
