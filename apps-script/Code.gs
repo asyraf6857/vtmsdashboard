@@ -50,12 +50,12 @@ function importExcel(fileId){
  }catch(e){SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VOR.log).appendRow([Utilities.getUuid(),fileId,new Date(),0,0,0,'','FAILED',String(e.message)]);throw e;}
  finally{if(tempId)try{DriveApp.getFileById(tempId).setTrashed(true);}catch(e){}lock.releaseLock();}
 }
-function doGet(){
+function doGet(e){
  const ss=SpreadsheetApp.getActiveSpreadsheet(),sh=ss.getSheetByName(VOR.reason);
  const rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,4).getValues():[];
  const names={'Mother':'Mother','Feeder':'Feeder','Container Others':'Container Others','ATB':'ATB','Malakoff':'Malakoff','Bunker':'Bunker','Ship to Ship':'Ship to Ship','Water':'Water','Other':'Other'};
  const result={};
  rows.forEach(r=>{const y=String(r[0]),m=Number(r[1])-1,k=names[r[2]];if(!k||m<0||m>11||!y.match(/^20\d\d$/))return;if(!result[y])result[y]={};if(!result[y][k])result[y][k]=[];result[y][k][m]=r[3]===''?0:Number(r[3])||0;});
  Object.values(result).forEach(groups=>{const length=Math.max(0,...Object.values(groups).map(a=>a.length));Object.keys(names).forEach(k=>{groups[k]=Array.from({length},(_,i)=>groups[k]?.[i]||0);});});
- return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+ const callback=(typeof e!=='undefined'&&e&&e.parameter&&e.parameter.callback)||''; if(callback && /^vtmsCallback_[a-zA-Z0-9_]+$/.test(callback)) return ContentService.createTextOutput(callback+'('+JSON.stringify(result)+');').setMimeType(ContentService.MimeType.JAVASCRIPT); return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
 }
