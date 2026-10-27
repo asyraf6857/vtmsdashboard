@@ -69,6 +69,8 @@ function doGet(e){
  result.__loa=loaRows.filter(r=>/^20\d{2}$/.test(String(r[0]))&&Number(r[1])>=1&&Number(r[1])<=12).map(r=>[Number(r[0]),Number(r[1]),String(r[2]),Number(r[3])||0,Number(r[4])||0]);
  const movementSheet=ss.getSheetByName('MOVEMENT_SUMMARY');
  result.__movement=movementSheet&&movementSheet.getLastRow()>1?movementSheet.getRange(2,1,movementSheet.getLastRow()-1,10).getValues().filter(r=>Number(r[0])>=2020&&Number(r[1])>=1&&Number(r[1])<=12).map(r=>r.map(v=>Number(v)||0)):[];
+ const dailySheet=ss.getSheetByName('MOVEMENT_DAILY');
+ result.__movementDaily=dailySheet&&dailySheet.getLastRow()>1?dailySheet.getRange(2,1,dailySheet.getLastRow()-1,11).getDisplayValues().filter(r=>/^20\\d{2}-\\d{2}-\\d{2}$/.test(String(r[0]))).map(r=>[String(r[0]),...r.slice(1).map(v=>Number(v)||0)]):[];
  const callback=(typeof e!=='undefined'&&e&&e.parameter&&e.parameter.callback)||''; if(callback && /^vtmsCallback_[a-zA-Z0-9_]+$/.test(callback)) return ContentService.createTextOutput(callback+'('+JSON.stringify(result)+');').setMimeType(ContentService.MimeType.JAVASCRIPT); return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -114,7 +116,7 @@ function importMovementUploadedForm(form){
   const cols=candidate.getRange(1,1,1,candidate.getLastColumn()).getDisplayValues()[0].map(x=>String(x).trim().toLowerCase());
   const pilot=cols.indexOf('assign pilot'),date=cols.indexOf('move srt'),type=cols.indexOf('move type'),reason=cols.indexOf('visit reason');
   if(reason<0)throw Error('Visit Reason column missing');
-  const counts={},years=new Set();let assigned=0,skipped=0;
+  const counts={},dailyCounts={},years=new Set();let assigned=0,skipped=0;
   const last=candidate.getLastRow(),width=Math.max(pilot,date,type,reason)+1;
   for(let start=2;start<=last;start+=3000){
    const block=candidate.getRange(start,1,Math.min(3000,last-start+1),width).getValues();
@@ -130,7 +132,11 @@ function importMovementUploadedForm(form){
     const group=String(row[reason]||'').trim().toLowerCase()==='container'?0:1;
     const key=year+'-'+month;
     if(!counts[key])counts[key]=[year,month,0,0,0,0,0,0,0,0];
-    counts[key][2+pos+group]++;years.add(year);assigned++;
+    counts[key][2+pos+group]++;
+    const day=Utilities.formatDate(d,Session.getScriptTimeZone(),'yyyy-MM-dd');
+    if(!dailyCounts[day])dailyCounts[day]=[day,year,month,0,0,0,0,0,0,0,0];
+    dailyCounts[day][3+pos+group]++;
+    years.add(year);assigned++;
    });
   }
   if(!assigned)throw Error('No valid assigned-pilot movement rows found');
@@ -138,7 +144,8 @@ function importMovementUploadedForm(form){
   const year=[...years][0],ss=SpreadsheetApp.getActiveSpreadsheet(),sh=ss.getSheetByName('MOVEMENT_SUMMARY');
   if(!sh)throw Error('MOVEMENT_SUMMARY tab missing');
   const existing=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,10).getValues():[];
-  const keep=existing.filter(r=>Number(r[0])!==year);
+  const months=new Set(Object.values(counts).map(r=>r[1]));
+  const keep=existing.filter(r=>Number(r[0])!==year||!months.has(Number(r[1])));
   const added=Object.values(counts).sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
   const output=keep.concat(added).sort((a,b)=>Number(a[0])-Number(b[0])||Number(a[1])-Number(b[1]));
   if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,11).clearContent();
@@ -146,7 +153,19 @@ function importMovementUploadedForm(form){
    sh.getRange(2,1,output.length,10).setValues(output);
    sh.getRange(2,11,output.length,1).setFormulas(output.map((r,i)=>['=SUM(C'+(i+2)+':J'+(i+2)+')']));
   }
-  return 'Imported '+assigned+' assigned-pilot movements for '+year+' across '+added.length+' months. Skipped '+skipped+' rows. Uploaded by '+user+'.';
+  const daily=ss.getSheetByName('MOVEMENT_DAILY');
+  if(!daily)throw Error('MOVEMENT_DAILY tab missing');
+  const oldDaily=daily.getLastRow()>1?daily.getRange(2,1,daily.getLastRow()-1,11).getDisplayValues():[];
+  const keepDaily=oldDaily.filter(r=>!Object.prototype.hasOwnProperty.call(dailyCounts,String(r[0])));
+  const addedDaily=Object.values(dailyCounts).sort((a,b)=>a[0].localeCompare(b[0]));
+  const mergedDaily=keepDaily.concat(addedDaily).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
+  if(daily.getLastRow()>1)daily.getRange(2,1,daily.getLastRow()-1,12).clearContent();
+  if(mergedDaily.length){
+   if(daily.getMaxRows()<mergedDaily.length+1)daily.insertRowsAfter(daily.getMaxRows(),mergedDaily.length+1-daily.getMaxRows());
+   daily.getRange(2,1,mergedDaily.length,11).setValues(mergedDaily.map(r=>r.map((v,i)=>i===0?String(v):Number(v)||0)));
+   daily.getRange(2,12,mergedDaily.length,1).setFormulas(mergedDaily.map((r,i)=>['=SUM(D'+(i+2)+':K'+(i+2)+')']));
+  }
+  return 'Imported '+addedDaily.length+' daily records and '+assigned+' assigned-pilot movements for '+year+' across '+added.length+' months. Skipped '+skipped+' rows. Uploaded by '+user+'.';
  }finally{
   if(converted)try{DriveApp.getFileById(converted).setTrashed(true)}catch(e){}
   if(uploaded)try{uploaded.setTrashed(true)}catch(e){}
