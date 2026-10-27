@@ -70,7 +70,7 @@ function doGet(e){
  const movementSheet=ss.getSheetByName('MOVEMENT_SUMMARY');
  result.__movement=movementSheet&&movementSheet.getLastRow()>1?movementSheet.getRange(2,1,movementSheet.getLastRow()-1,10).getValues().filter(r=>Number(r[0])>=2020&&Number(r[1])>=1&&Number(r[1])<=12).map(r=>r.map(v=>Number(v)||0)):[];
  const dailySheet=ss.getSheetByName('MOVEMENT_DAILY');
- result.__movementDaily=dailySheet&&dailySheet.getLastRow()>1?dailySheet.getRange(2,1,dailySheet.getLastRow()-1,11).getDisplayValues().filter(r=>/^20\\d{2}-\\d{2}-\\d{2}$/.test(String(r[0]))).map(r=>[String(r[0]),...r.slice(1).map(v=>Number(v)||0)]):[];
+ result.__movementDaily=dailySheet&&dailySheet.getLastRow()>1?dailySheet.getRange(2,1,dailySheet.getLastRow()-1,11).getDisplayValues().filter(r=>/^20\d{2}-\d{2}-\d{2}$/.test(String(r[0]))).map(r=>[String(r[0]),...r.slice(1).map(v=>Number(v)||0)]):[];
  const callback=(typeof e!=='undefined'&&e&&e.parameter&&e.parameter.callback)||''; if(callback && /^vtmsCallback_[a-zA-Z0-9_]+$/.test(callback)) return ContentService.createTextOutput(callback+'('+JSON.stringify(result)+');').setMimeType(ContentService.MimeType.JAVASCRIPT); return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
 }
 
