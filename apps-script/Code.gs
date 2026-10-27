@@ -156,7 +156,7 @@ function importMovementUploadedForm(form){
   const daily=ss.getSheetByName('MOVEMENT_DAILY');
   if(!daily)throw Error('MOVEMENT_DAILY tab missing');
   const oldDaily=daily.getLastRow()>1?daily.getRange(2,1,daily.getLastRow()-1,11).getDisplayValues():[];
-  const keepDaily=oldDaily.filter(r=>!Object.prototype.hasOwnProperty.call(dailyCounts,String(r[0])));
+  const keepDaily=oldDaily.filter(r=>!(Number(r[1])===year&&months.has(Number(r[2]))));
   const addedDaily=Object.values(dailyCounts).sort((a,b)=>a[0].localeCompare(b[0]));
   const mergedDaily=keepDaily.concat(addedDaily).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
   if(daily.getLastRow()>1)daily.getRange(2,1,daily.getLastRow()-1,12).clearContent();
