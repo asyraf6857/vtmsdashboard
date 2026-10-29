@@ -116,7 +116,7 @@ function importMovementUploadedForm(form, previewOnly){
   const cols=candidate.getRange(1,1,1,candidate.getLastColumn()).getDisplayValues()[0].map(x=>String(x).trim().toLowerCase());
   const pilot=cols.indexOf('assign pilot'),date=cols.indexOf('move srt'),type=cols.indexOf('move type'),reason=cols.indexOf('visit reason');
   if(reason<0)throw Error('Visit Reason column missing');
-  const incoming=new Map(),years=new Set(),tz='Asia/Kuala_Lumpur';
+  const incoming=new Map(),years=new Set(),tz=source.getSpreadsheetTimeZone();
   let assigned=0,skipped=0;
   function dateKey_(value){
    if(value instanceof Date&&!isNaN(value.getTime()))return Utilities.formatDate(value,tz,'yyyy-MM-dd');
@@ -150,7 +150,7 @@ function importMovementUploadedForm(form, previewOnly){
   const merged=new Map();
   oldDaily.forEach(row=>{
    if(row[0]===''||row[0]===null)return;
-   const key=dateKey_(row[0]);if(!key)throw Error('Invalid existing daily date: '+row[0]+'. No data changed.');
+   const key=row[0] instanceof Date?Utilities.formatDate(row[0],ss.getSpreadsheetTimeZone(),'yyyy-MM-dd'):dateKey_(row[0]);if(!key)throw Error('Invalid existing daily date: '+row[0]+'. No data changed.');
    if(merged.has(key))throw Error('Duplicate existing daily date '+key+'. Resolve before uploading.');
    merged.set(key,[key,Number(key.slice(0,4)),Number(key.slice(5,7)),...row.slice(3,11).map(v=>Number(v)||0)]);
   });
@@ -158,7 +158,7 @@ function importMovementUploadedForm(form, previewOnly){
   incoming.forEach((row,key)=>merged.set(key,row));
   if(previewOnly){
    const details=[...incoming.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([day,row])=>{
-    const before=oldDaily.find(r=>dateKey_(r[0])===day);
+    const before=oldDaily.find(r=>(r[0] instanceof Date?Utilities.formatDate(r[0],ss.getSpreadsheetTimeZone(),'yyyy-MM-dd'):dateKey_(r[0]))===day);
     const previous=before?before.slice(3,11).map(v=>Number(v)||0):[0,0,0,0,0,0,0,0];
     const current=row.slice(3,11),oldTotal=previous.reduce((a,b)=>a+b,0),newTotal=current.reduce((a,b)=>a+b,0);
     return {date:day,previous:oldTotal,uploaded:newTotal,difference:newTotal-oldTotal,categories:current,previousCategories:previous};
