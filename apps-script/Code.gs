@@ -99,7 +99,7 @@ function importUploadedForm(form){
  * Counts rows with a nonblank Assign Pilot; month determined by Move SRT.
  * Replace only years represented in valid input data.
  */
-function importMovementUploadedForm(form){
+function importMovementUploadedForm(form, previewOnly){
  const user=assertUploadAccess_();
  if(!form||!form.movementFile)throw Error('Select Movement Planning .xlsx');
  const name=String(form.originalFileName||form.movementFile.getName()||'');
@@ -156,6 +156,15 @@ function importMovementUploadedForm(form){
   });
   // Replace only dates included in the uploaded file; preserve all other dates.
   incoming.forEach((row,key)=>merged.set(key,row));
+  if(previewOnly){
+   const details=[...incoming.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([day,row])=>{
+    const before=oldDaily.find(r=>dateKey_(r[0])===day);
+    const previous=before?before.slice(3,11).map(v=>Number(v)||0):[0,0,0,0,0,0,0,0];
+    const current=row.slice(3,11),oldTotal=previous.reduce((a,b)=>a+b,0),newTotal=current.reduce((a,b)=>a+b,0);
+    return {date:day,previous:oldTotal,uploaded:newTotal,difference:newTotal-oldTotal,categories:current,previousCategories:previous};
+   });
+   return {year:[...years][0],assigned,skipped,dates:details,changed:details.filter(d=>d.difference!==0||d.categories.some((v,i)=>v!==d.previousCategories[i])).length};
+  }
   const ordered=[...merged.values()].sort((a,b)=>a[0].localeCompare(b[0]));
   const aggregates=new Map();
   ordered.forEach(row=>{
@@ -182,4 +191,32 @@ function importMovementUploadedForm(form){
   if(uploaded)try{uploaded.setTrashed(true)}catch(e){}
   lock.releaseLock();
  }
+}
+
+/** Two-step upload: preview is read-only; confirmation requires a short-lived token. */
+function previewMovementUploadedForm(form){
+ const email=assertUploadAccess_();
+ if(!form||!form.movementFile)throw Error('Select an Excel file');
+ const result=importMovementUploadedForm(form,true);
+ const blob=form.movementFile;
+ const token=Utilities.getUuid().replace(/-/g,'');
+ const saved=DriveApp.createFile(blob).setName('VTMS_PENDING_MOVEMENT_'+token+'.xlsx');
+ try{
+  PropertiesService.getScriptProperties().setProperty('VTMS_PREVIEW_'+token,JSON.stringify({email,fileId:saved.getId(),name:String(form.originalFileName||blob.getName()),expires:Date.now()+20*60*1000}));
+ }catch(e){saved.setTrashed(true);throw e}
+ result.token=token;
+ return result;
+}
+function confirmMovementPreview(token){
+ const email=assertUploadAccess_();
+ if(!/^[a-f0-9]{32}$/.test(String(token||'')))throw Error('Invalid preview token');
+ const props=PropertiesService.getScriptProperties(),key='VTMS_PREVIEW_'+token,raw=props.getProperty(key);
+ if(!raw)throw Error('Preview expired or already confirmed. Upload again.');
+ const record=JSON.parse(raw);
+ if(record.email!==email||Date.now()>record.expires)throw Error('Preview expired or unauthorized. Upload again.');
+ // Delete token before writing to prevent double confirmation.
+ props.deleteProperty(key);
+ const file=DriveApp.getFileById(record.fileId);
+ try{return importMovementUploadedForm({movementFile:file.getBlob().setName(record.name),originalFileName:record.name},false)}
+ finally{try{file.setTrashed(true)}catch(e){}}
 }
