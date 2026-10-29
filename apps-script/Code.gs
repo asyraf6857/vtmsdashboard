@@ -124,7 +124,8 @@ function importMovementUploadedForm(form){
     if(!String(row[pilot]||'').trim()){skipped++;return}
     const d=row[date] instanceof Date?row[date]:(typeof row[date]==='number'?new Date(Date.UTC(1899,11,30)+row[date]*86400000):new Date(row[date]));
     if(isNaN(d.getTime())){skipped++;return}
-    const year=d.getUTCFullYear(),month=d.getUTCMonth()+1;
+    const localDay=Utilities.formatDate(d,'Asia/Kuala_Lumpur','yyyy-MM-dd');
+    const year=Number(localDay.slice(0,4)),month=Number(localDay.slice(5,7));
     if(year<2020||year>2100){skipped++;return}
     const t=String(row[type]||'').trim().toUpperCase();
     const pos={ARRIVAL:0,DEPARTURE:2,MOVE:4,SHIFT:6}[t];
@@ -133,7 +134,7 @@ function importMovementUploadedForm(form){
     const key=year+'-'+month;
     if(!counts[key])counts[key]=[year,month,0,0,0,0,0,0,0,0];
     counts[key][2+pos+group]++;
-    const day=Utilities.formatDate(d,Session.getScriptTimeZone(),'yyyy-MM-dd');
+    const day=localDay;
     if(!dailyCounts[day])dailyCounts[day]=[day,year,month,0,0,0,0,0,0,0,0];
     dailyCounts[day][3+pos+group]++;
     years.add(year);assigned++;
