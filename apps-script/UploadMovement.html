@@ -1,1 +1,41 @@
-<!doctype html><html><head><base target="_top"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font:15px system-ui;background:#0c2032;color:#e7f5ff;padding:28px;max-width:620px;margin:auto}h2{margin-bottom:8px}p{color:#a8c5d8}form{background:#17324a;border:1px solid #365b74;padding:24px;border-radius:15px}input,button{padding:13px;width:100%;margin:10px 0;box-sizing:border-box}button{background:#45d4e4;color:#071927;border:0;border-radius:8px;font-weight:700;cursor:pointer}button:disabled{opacity:.5}#result{white-space:pre-wrap;margin-top:18px;line-height:1.5}</style></head><body><h2>⚓ Upload Movement Planning</h2><p>Authorized VTMS users only. Upload a single-year .xlsx report. Only rows with Assign Pilot count as movements. Only dates contained in the uploaded file will be updated. All other dates are preserved; monthly totals are recalculated from the complete daily history.</p><form id="f"><input type="file" id="file" name="movementFile" accept=".xlsx" required><input type="hidden" name="originalFileName" id="originalFileName"><button id="submit" type="submit">Upload & Sync Daily Movements</button></form><div id="result"></div><script>document.getElementById('f').onsubmit=function(e){e.preventDefault();const file=document.getElementById('file').files[0];if(!file)return;document.getElementById('originalFileName').value=file.name;const btn=document.getElementById('submit');btn.disabled=true;document.getElementById('result').textContent='Processing Excel file…';google.script.run.withSuccessHandler(msg=>{btn.disabled=false;document.getElementById('result').textContent='✓ '+msg+'\nRefresh the Movement Dashboard to see updated statistics. Keep this confirmation for your records.'}).withFailureHandler(err=>{btn.disabled=false;document.getElementById('result').textContent='Error: '+err.message}).importMovementUploadedForm(this)};</script></body></html>
+<!doctype html>
+<html><head><base target="_top"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font:14px system-ui;background:#0c2032;color:#e7f5ff;padding:24px;max-width:1100px;margin:auto}
+h2{margin-bottom:8px}p,small{color:#a8c5d8}form,.panel{background:#17324a;border:1px solid #365b74;padding:20px;border-radius:12px;margin:16px 0}
+input,button{padding:12px;box-sizing:border-box}input{width:100%}button{background:#45d4e4;color:#071927;border:0;border-radius:8px;font-weight:700;cursor:pointer;margin:10px 8px 0 0}button:disabled{opacity:.5}
+.secondary{background:#dce8f0}.danger{background:#f3b4ad}#result{white-space:pre-wrap;line-height:1.5;margin:12px 0}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:8px;border-bottom:1px solid #365b74;text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}th{position:sticky;top:0;background:#24455d}.scroll{overflow:auto;max-height:440px}.changed{background:#344451}#confirmBox{display:none}
+</style></head><body>
+<h2>⚓ VTMS Movement Upload — Preview & Validation</h2>
+<p>Upload one-year .xlsx Movement Planning report. Preview is read-only: no database changes until you press Confirm Update. Each row with Assign Pilot and valid Move SRT / Move Type counts as one movement. Check unexpected dates and differences carefully.</p>
+<form id="f"><input type="file" id="file" name="movementFile" accept=".xlsx" required><input type="hidden" name="originalFileName" id="originalFileName"><button id="preview" type="submit">1. Preview & Compare</button></form>
+<div id="result" role="status"></div>
+<div id="confirmBox" class="panel"><h3>Preview by Date</h3><p id="stats"></p><div class="scroll"><table><thead><tr><th>Date</th><th>Existing</th><th>Uploaded</th><th>Difference</th><th>Arr C</th><th>Arr NC</th><th>Dep C</th><th>Dep NC</th><th>Move C</th><th>Move NC</th><th>Shift C</th><th>Shift NC</th></tr></thead><tbody id="rows"></tbody></table></div><small>Differences compare uploaded totals with existing daily totals. A zero difference does not guarantee identical category breakdown. Review every date before confirming. Duplicate vessel/movement rows are not automatically identified.</small><div><button id="confirm" type="button" class="danger">2. Confirm Update Database</button><button id="cancel" type="button" class="secondary">Cancel / Start Over</button></div></div>
+<script>
+let token=null;
+const $=id=>document.getElementById(id);
+function status(msg){$('result').textContent=msg}
+function busy(v){$('preview').disabled=v;$('confirm').disabled=v}
+$('f').onsubmit=function(e){
+ e.preventDefault();const file=$('file').files[0];if(!file)return;
+ $('originalFileName').value=file.name;token=null;$('confirmBox').style.display='none';busy(true);status('Reading Excel and comparing with MOVEMENT_DAILY…');
+ google.script.run.withSuccessHandler(data=>{
+  busy(false);token=data.token;
+  $('stats').textContent='Year '+data.year+' • '+data.assigned+' counted movements • '+data.dates.length+' dates • '+data.changed+' changed dates • '+data.skipped+' skipped rows.';
+  $('rows').textContent='';
+  data.dates.forEach(d=>{
+   const tr=document.createElement('tr');if(d.difference!==0||d.categories.some((v,i)=>v!==d.previousCategories[i]))tr.className='changed';
+   [d.date,d.previous,d.uploaded,d.difference,...d.categories].forEach(value=>{const td=document.createElement('td');td.textContent=value;tr.appendChild(td)});
+   $('rows').appendChild(tr);
+  });
+  $('confirmBox').style.display='block';status('Preview complete. No data has been changed. Check dates and categories before confirming.');
+ }).withFailureHandler(err=>{busy(false);status('Preview failed: '+err.message)}).previewMovementUploadedForm(this);
+};
+$('confirm').onclick=function(){
+ if(!token)return;
+ if(!window.confirm('Confirm updating '+$('rows').children.length+' dates in MOVEMENT_DAILY and recalculating MOVEMENT_SUMMARY?'))return;
+ busy(true);status('Applying confirmed changes…');
+ google.script.run.withSuccessHandler(msg=>{busy(false);token=null;$('confirmBox').style.display='none';status('✓ '+msg+'\nRefresh the dashboard to view updates.')}).withFailureHandler(err=>{busy(false);token=null;$('confirmBox').style.display='none';status('Update failed: '+err.message+'\nCheck sheet before retrying.')}).confirmMovementPreview(token);
+};
+$('cancel').onclick=function(){token=null;$('confirmBox').style.display='none';$('file').value='';status('Cancelled. No data changed by this preview.')};
+</script></body></html>
