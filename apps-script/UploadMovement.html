@@ -9,18 +9,23 @@ input,button{padding:12px;box-sizing:border-box}input{width:100%}button{backgrou
 <h2>⚓ VTMS Movement Upload — Preview & Validation</h2>
 <p>Upload one-year .xlsx Movement Planning report. Preview is read-only: no database changes until you press Confirm Update. Each row with Assign Pilot and valid Move SRT / Move Type counts as one movement. Check unexpected dates and differences carefully.</p>
 <form id="f"><input type="file" id="file" name="movementFile" accept=".xlsx" required><input type="hidden" name="originalFileName" id="originalFileName"><button id="preview" type="submit">1. Preview & Compare</button></form>
-<div id="result" role="status"></div>
+<div id="progressWrap" class="panel" style="display:none" aria-live="polite"><div style="display:flex;justify-content:space-between;gap:12px"><strong id="progressLabel">Processing</strong><strong id="progressPercent">0%</strong></div><div id="progressTrack" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="background:#092235;border-radius:8px;height:16px;overflow:hidden;margin:12px 0"><div id="progressFill" style="height:100%;width:0;background:#45d4e4;transition:width .45s ease"></div></div><small id="progressDetail">Estimated progress — waiting for server</small></div><div id="result" role="status"></div>
 <div id="confirmBox" class="panel"><h3>Preview by Date</h3><p id="stats"></p><div class="scroll"><table><thead><tr><th>Date</th><th>Existing</th><th>Uploaded</th><th>Difference</th><th>Arr C</th><th>Arr NC</th><th>Dep C</th><th>Dep NC</th><th>Move C</th><th>Move NC</th><th>Shift C</th><th>Shift NC</th></tr></thead><tbody id="rows"></tbody></table></div><small>Differences compare uploaded totals with existing daily totals. A zero difference does not guarantee identical category breakdown. Review every date before confirming. Duplicate vessel/movement rows are not automatically identified.</small><div><button id="confirm" type="button" class="danger">2. Confirm Update Database</button><button id="cancel" type="button" class="secondary">Cancel / Start Over</button></div></div>
 <script>
-let token=null;
+let token=null, progressTimer=null, progressStarted=0, progressValue=0;
+function progressStart(label){progressStop();progressValue=0;progressStarted=Date.now();$('progressWrap').style.display='block';$('progressLabel').textContent=label;$('progressDetail').textContent='Estimated progress — waiting for server';progressDraw();progressTimer=setInterval(()=>{const elapsed=(Date.now()-progressStarted)/1000;progressValue=Math.min(95,Math.floor(95*(1-Math.exp(-elapsed/55))));progressDraw()},500)}
+function progressDraw(){$('progressFill').style.width=progressValue+'%';$('progressPercent').textContent=progressValue+'%';$('progressTrack').setAttribute('aria-valuenow',String(progressValue))}
+function progressStop(){if(progressTimer){clearInterval(progressTimer);progressTimer=null}}
+function progressDone(label){progressStop();progressValue=100;progressDraw();$('progressLabel').textContent=label;$('progressDetail').textContent='Server confirmed completion'}
+function progressFail(label){progressStop();$('progressLabel').textContent=label;$('progressDetail').textContent='Process stopped at '+progressValue+'% estimated progress'}
 const $=id=>document.getElementById(id);
 function status(msg){$('result').textContent=msg}
 function busy(v){$('preview').disabled=v;$('confirm').disabled=v}
 $('f').onsubmit=function(e){
  e.preventDefault();const file=$('file').files[0];if(!file)return;
- $('originalFileName').value=file.name;token=null;$('confirmBox').style.display='none';busy(true);status('Reading Excel and comparing with MOVEMENT_DAILY…');
+ $('originalFileName').value=file.name;token=null;$('confirmBox').style.display='none';busy(true);progressStart('Preview: reading and validating Excel');status('Reading Excel and comparing with MOVEMENT_DAILY…');
  google.script.run.withSuccessHandler(data=>{
-  busy(false);token=data.token;
+  busy(false);progressDone('Preview completed');token=data.token;
   $('stats').textContent='Year '+data.year+' • '+data.assigned+' counted movements • '+data.dates.length+' dates • '+data.changed+' changed dates • '+data.skipped+' skipped rows.';
   $('rows').textContent='';
   data.dates.forEach(d=>{
@@ -29,13 +34,13 @@ $('f').onsubmit=function(e){
    $('rows').appendChild(tr);
   });
   $('confirmBox').style.display='block';status('Preview complete. No data has been changed. Check dates and categories before confirming.');
- }).withFailureHandler(err=>{busy(false);status('Preview failed: '+err.message)}).previewMovementUploadedForm(this);
+ }).withFailureHandler(err=>{busy(false);progressFail('Preview failed');status('Preview failed: '+err.message)}).previewMovementUploadedForm(this);
 };
 $('confirm').onclick=function(){
  if(!token)return;
  if(!window.confirm('Confirm updating '+$('rows').children.length+' dates in MOVEMENT_DAILY and recalculating MOVEMENT_SUMMARY?'))return;
- busy(true);status('Applying confirmed changes…');
- google.script.run.withSuccessHandler(msg=>{busy(false);token=null;$('confirmBox').style.display='none';status('✓ '+msg+'\nRefresh the dashboard to view updates.')}).withFailureHandler(err=>{busy(false);token=null;$('confirmBox').style.display='none';status('Update failed: '+err.message+'\nCheck sheet before retrying.')}).confirmMovementPreview(token);
+ busy(true);progressStart('Updating MOVEMENT_DAILY and MOVEMENT_SUMMARY');status('Applying confirmed changes…');
+ google.script.run.withSuccessHandler(msg=>{busy(false);progressDone('Database update completed');token=null;$('confirmBox').style.display='none';status('✓ '+msg+'\nRefresh the dashboard to view updates.')}).withFailureHandler(err=>{busy(false);progressFail('Database update failed');token=null;$('confirmBox').style.display='none';status('Update failed: '+err.message+'\nCheck sheet before retrying.')}).confirmMovementPreview(token);
 };
-$('cancel').onclick=function(){token=null;$('confirmBox').style.display='none';$('file').value='';status('Cancelled. No data changed by this preview.')};
+$('cancel').onclick=function(){token=null;progressStop();$('progressWrap').style.display='none';$('confirmBox').style.display='none';$('file').value='';status('Cancelled. No data changed by this preview.')};
 </script></body></html>
