@@ -111,62 +111,72 @@ function importMovementUploadedForm(form){
   uploaded=DriveApp.createFile(form.movementFile).setName(name);
   converted=Drive.Files.create({name:'VTMS_MOVEMENT_TEMP_'+Date.now(),mimeType:'application/vnd.google-apps.spreadsheet'},uploaded.getBlob(),{fields:'id'}).id;
   const source=SpreadsheetApp.openById(converted);
-  const candidate=source.getSheets().find(sh=>{const a=sh.getRange(1,1,1,Math.min(sh.getLastColumn(),20)).getDisplayValues()[0].map(x=>String(x).trim().toLowerCase());return a.includes('assign pilot')&&a.includes('move srt')&&a.includes('move type')});
-  if(!candidate)throw Error('Cannot find a movement data worksheet with Assign Pilot, Move SRT and Move Type headers');
+  const candidate=source.getSheets().find(sh=>{const a=sh.getRange(1,1,1,Math.min(sh.getLastColumn(),30)).getDisplayValues()[0].map(x=>String(x).trim().toLowerCase());return a.includes('assign pilot')&&a.includes('move srt')&&a.includes('move type')});
+  if(!candidate)throw Error('Cannot find a movement worksheet with Assign Pilot, Move SRT and Move Type');
   const cols=candidate.getRange(1,1,1,candidate.getLastColumn()).getDisplayValues()[0].map(x=>String(x).trim().toLowerCase());
   const pilot=cols.indexOf('assign pilot'),date=cols.indexOf('move srt'),type=cols.indexOf('move type'),reason=cols.indexOf('visit reason');
   if(reason<0)throw Error('Visit Reason column missing');
-  const counts={},dailyCounts={},years=new Set();let assigned=0,skipped=0;
+  const incoming=new Map(),years=new Set(),tz='Asia/Kuala_Lumpur';
+  let assigned=0,skipped=0;
+  function dateKey_(value){
+   if(value instanceof Date&&!isNaN(value.getTime()))return Utilities.formatDate(value,tz,'yyyy-MM-dd');
+   if(typeof value==='number'&&Number.isFinite(value))return Utilities.formatDate(new Date(Date.UTC(1899,11,30)+Math.floor(value)*86400000),'UTC','yyyy-MM-dd');
+   const text=String(value||'').trim(),iso=text.match(/^(20\d{2})-(\d{1,2})-(\d{1,2})(?:\s|T|$)/);
+   if(iso){const y=+iso[1],m=+iso[2],d=+iso[3],test=new Date(Date.UTC(y,m-1,d));return test.getUTCFullYear()===y&&test.getUTCMonth()===m-1&&test.getUTCDate()===d?y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0'):null}
+   const dm=text.match(/^(\d{1,2})\/(\d{1,2})\/(20\d{2})(?:\s|$)/);
+   if(dm){const y=+dm[3],m=+dm[2],d=+dm[1],test=new Date(Date.UTC(y,m-1,d));return test.getUTCFullYear()===y&&test.getUTCMonth()===m-1&&test.getUTCDate()===d?y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0'):null}
+   return null;
+  }
   const last=candidate.getLastRow(),width=Math.max(pilot,date,type,reason)+1;
   for(let start=2;start<=last;start+=3000){
-   const block=candidate.getRange(start,1,Math.min(3000,last-start+1),width).getValues();
-   block.forEach(row=>{
+   candidate.getRange(start,1,Math.min(3000,last-start+1),width).getValues().forEach(row=>{
     if(!String(row[pilot]||'').trim()){skipped++;return}
-    const d=row[date] instanceof Date?row[date]:(typeof row[date]==='number'?new Date(Date.UTC(1899,11,30)+row[date]*86400000):new Date(row[date]));
-    if(isNaN(d.getTime())){skipped++;return}
-    const localDay=Utilities.formatDate(d,'Asia/Kuala_Lumpur','yyyy-MM-dd');
-    const year=Number(localDay.slice(0,4)),month=Number(localDay.slice(5,7));
+    const day=dateKey_(row[date]);if(!day){skipped++;return}
+    const year=Number(day.slice(0,4)),month=Number(day.slice(5,7));
     if(year<2020||year>2100){skipped++;return}
-    const t=String(row[type]||'').trim().toUpperCase();
-    const pos={ARRIVAL:0,DEPARTURE:2,MOVE:4,SHIFT:6}[t];
+    const pos={ARRIVAL:0,DEPARTURE:2,MOVE:4,SHIFT:6}[String(row[type]||'').trim().toUpperCase()];
     if(pos===undefined){skipped++;return}
     const group=String(row[reason]||'').trim().toLowerCase()==='container'?0:1;
-    const key=year+'-'+month;
-    if(!counts[key])counts[key]=[year,month,0,0,0,0,0,0,0,0];
-    counts[key][2+pos+group]++;
-    const day=localDay;
-    if(!dailyCounts[day])dailyCounts[day]=[day,year,month,0,0,0,0,0,0,0,0];
-    dailyCounts[day][3+pos+group]++;
+    if(!incoming.has(day))incoming.set(day,[day,year,month,0,0,0,0,0,0,0,0]);
+    incoming.get(day)[3+pos+group]++;
     years.add(year);assigned++;
    });
   }
-  if(!assigned)throw Error('No valid assigned-pilot movement rows found');
-  if(years.size!==1)throw Error('File includes multiple movement years; upload one year at a time');
-  const year=[...years][0],ss=SpreadsheetApp.getActiveSpreadsheet(),sh=ss.getSheetByName('MOVEMENT_SUMMARY');
-  if(!sh)throw Error('MOVEMENT_SUMMARY tab missing');
-  const existing=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,10).getValues():[];
-  const months=new Set(Object.values(counts).map(r=>r[1]));
-  const keep=existing.filter(r=>Number(r[0])!==year||!months.has(Number(r[1])));
-  const added=Object.values(counts).sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
-  const output=keep.concat(added).sort((a,b)=>Number(a[0])-Number(b[0])||Number(a[1])-Number(b[1]));
-  if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,11).clearContent();
-  if(output.length){
-   sh.getRange(2,1,output.length,10).setValues(output);
-   sh.getRange(2,11,output.length,1).setFormulas(output.map((r,i)=>['=SUM(C'+(i+2)+':J'+(i+2)+')']));
-  }
-  const daily=ss.getSheetByName('MOVEMENT_DAILY');
-  if(!daily)throw Error('MOVEMENT_DAILY tab missing');
-  const oldDaily=daily.getLastRow()>1?daily.getRange(2,1,daily.getLastRow()-1,11).getDisplayValues():[];
-  const keepDaily=oldDaily.filter(r=>!(Number(r[1])===year&&months.has(Number(r[2]))));
-  const addedDaily=Object.values(dailyCounts).sort((a,b)=>a[0].localeCompare(b[0]));
-  const mergedDaily=keepDaily.concat(addedDaily).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
-  if(daily.getLastRow()>1)daily.getRange(2,1,daily.getLastRow()-1,12).clearContent();
-  if(mergedDaily.length){
-   if(daily.getMaxRows()<mergedDaily.length+1)daily.insertRowsAfter(daily.getMaxRows(),mergedDaily.length+1-daily.getMaxRows());
-   daily.getRange(2,1,mergedDaily.length,11).setValues(mergedDaily.map(r=>r.map((v,i)=>i===0?String(v):Number(v)||0)));
-   daily.getRange(2,12,mergedDaily.length,1).setFormulas(mergedDaily.map((r,i)=>['=SUM(D'+(i+2)+':K'+(i+2)+')']));
-  }
-  return 'Imported '+addedDaily.length+' daily records and '+assigned+' assigned-pilot movements for '+year+' across '+added.length+' months. Skipped '+skipped+' rows. Uploaded by '+user+'.';
+  if(!assigned)throw Error('No valid assigned-pilot movements found');
+  if(years.size!==1)throw Error('File contains multiple movement years; upload one year at a time');
+  const ss=SpreadsheetApp.getActiveSpreadsheet(),daily=ss.getSheetByName('MOVEMENT_DAILY'),monthly=ss.getSheetByName('MOVEMENT_SUMMARY');
+  if(!daily||!monthly)throw Error('MOVEMENT_DAILY or MOVEMENT_SUMMARY tab missing');
+  const oldDaily=daily.getLastRow()>1?daily.getRange(2,1,daily.getLastRow()-1,11).getValues():[];
+  const merged=new Map();
+  oldDaily.forEach(row=>{
+   if(row[0]===''||row[0]===null)return;
+   const key=dateKey_(row[0]);if(!key)throw Error('Invalid existing daily date: '+row[0]+'. No data changed.');
+   if(merged.has(key))throw Error('Duplicate existing daily date '+key+'. Resolve before uploading.');
+   merged.set(key,[key,Number(key.slice(0,4)),Number(key.slice(5,7)),...row.slice(3,11).map(v=>Number(v)||0)]);
+  });
+  // Replace only dates included in the uploaded file; preserve all other dates.
+  incoming.forEach((row,key)=>merged.set(key,row));
+  const ordered=[...merged.values()].sort((a,b)=>a[0].localeCompare(b[0]));
+  const aggregates=new Map();
+  ordered.forEach(row=>{
+   const key=row[1]+'-'+row[2];
+   if(!aggregates.has(key))aggregates.set(key,[row[1],row[2],0,0,0,0,0,0,0,0]);
+   for(let j=0;j<8;j++)aggregates.get(key)[2+j]+=row[3+j];
+  });
+  const monthRows=[...aggregates.values()].sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+  if(daily.getMaxRows()<ordered.length+1)daily.insertRowsAfter(daily.getMaxRows(),ordered.length+1-daily.getMaxRows());
+  if(monthly.getMaxRows()<monthRows.length+1)monthly.insertRowsAfter(monthly.getMaxRows(),monthRows.length+1-monthly.getMaxRows());
+  const previousDaily=daily.getLastRow(),previousMonthly=monthly.getLastRow();
+  // Write validated results; daily dates are stored as real date cells.
+  const dailyValues=ordered.map(r=>[new Date(Number(r[1]),Number(r[2])-1,Number(r[0].slice(8,10)),12,0,0),...r.slice(1)]);
+  daily.getRange(2,1,dailyValues.length,11).setValues(dailyValues);
+  daily.getRange(2,1,dailyValues.length,1).setNumberFormat('yyyy-mm-dd');
+  daily.getRange(2,12,dailyValues.length,1).setFormulas(dailyValues.map((r,i)=>['=SUM(D'+(i+2)+':K'+(i+2)+')']));
+  if(previousDaily>dailyValues.length+1)daily.getRange(dailyValues.length+2,1,previousDaily-dailyValues.length-1,12).clearContent();
+  monthly.getRange(2,1,monthRows.length,10).setValues(monthRows);
+  monthly.getRange(2,11,monthRows.length,1).setFormulas(monthRows.map((r,i)=>['=SUM(C'+(i+2)+':J'+(i+2)+')']));
+  if(previousMonthly>monthRows.length+1)monthly.getRange(monthRows.length+2,1,previousMonthly-monthRows.length-1,11).clearContent();
+  return 'Updated '+incoming.size+' dates ('+assigned+' movements). Preserved '+(ordered.length-incoming.size)+' other dates. Recalculated '+monthRows.length+' monthly summaries. Skipped '+skipped+' rows. Uploaded by '+user+'.';
  }finally{
   if(converted)try{DriveApp.getFileById(converted).setTrashed(true)}catch(e){}
   if(uploaded)try{uploaded.setTrashed(true)}catch(e){}
