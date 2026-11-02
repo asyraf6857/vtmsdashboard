@@ -32,8 +32,8 @@ function importExcel(fileId){
    summary.push([year,m+1,total,c,n,'','','','',new Date()]);
    CATS.forEach(([name,row])=>{const count=cell(row,m);reasons.push([year,m+1,name,count===null?'':count,count===null?'':count/total]);});
    let loaSum=0;
-   for(let b=0;b<8;b++){const lc=cell(27+b*2,m)||0,ln=cell(28+b*2,m)||0;loa.push([year,m+1,BINS[b],lc,ln,lc+ln]);loaSum+=lc+ln;}
-   if(loaSum!==total)throw Error('LOA mismatch '+year+' month '+(m+1));
+   for(let b=0;b<8;b++){const lc=cell(29+b*2,m)||0,ln=cell(30+b*2,m)||0;loa.push([year,m+1,BINS[b],lc,ln,lc+ln]);loaSum+=lc+ln;}
+   if(loaSum!==total)throw Error('LOA mismatch '+year+' month '+(m+1)+': LOA total='+loaSum+', summary total='+total+'. No data was replaced.');
   });
   const ss=SpreadsheetApp.getActiveSpreadsheet();
   function replaceYear(name,newRows){
